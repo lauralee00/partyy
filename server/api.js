@@ -23,6 +23,7 @@ const mainCalls = require("./mainCalls");
 const roomCalls = require("./roomCalls");
 const gameCalls = require("./gameCalls");
 const categoryDashboardCalls = require("./categoryDashboardCalls");
+const spotifyAuth = require("./spotifyAuth");
 // api endpoints: all these paths will be prefixed with "/api/"
 const router = express.Router();
 
@@ -80,6 +81,13 @@ router.get("/addCategory", auth.ensureLoggedIn, categoryDashboardCalls.addCatego
 router.post("/addCategoryAuthenticate", auth.ensureLoggedIn, categoryDashboardCalls.addCategoryAuthenticate);
 router.post("/deleteCategory", auth.ensureLoggedIn, categoryDashboardCalls.deleteCategory);
 
+// Spotify user OAuth routes
+router.get("/spotify/auth", auth.ensureLoggedIn, spotifyAuth.getAuthUrl);
+router.get("/spotify/callback", spotifyAuth.handleCallback);
+router.post("/spotify/disconnect", auth.ensureLoggedIn, spotifyAuth.disconnect);
+router.get("/spotify/status", auth.ensureLoggedIn, spotifyAuth.getStatus);
+router.get("/spotify/playlists", auth.ensureLoggedIn, spotifyAuth.getPlaylists);
+router.get("/spotify/playlist/:playlistId/tracks", auth.ensureLoggedIn, spotifyAuth.getPlaylistTracks);
 
 // anything else falls to this "not found" case
 router.all("*", (req, res) => {
