@@ -5,6 +5,7 @@ const Message = require("./models/message");
 const Room = require("./models/room");
 const Category = require("./models/category");
 const socket = require("./server-socket");
+const spotifyAuth = require("./spotifyAuth");
 var Promise = require("promise");
 const random = require('random')
 var Filter = require('bad-words');
@@ -20,6 +21,37 @@ const {
   mergeSort 
 } = require('sort-algorithms-js');
 const lock = require("./lock").lock;
+
+// Helper function to get a random song from custom playlist songs
+const getRandomCustomSong = (songs, excludeUrls = []) => {
+  const availableSongs = songs.filter(s => !excludeUrls.includes(s.songUrl));
+  if (availableSongs.length === 0) {
+    // If all songs used, allow repeats
+    return songs[Math.floor(Math.random() * songs.length)];
+  }
+  return availableSongs[Math.floor(Math.random() * availableSongs.length)];
+};
+
+// Helper function to fetch and cache playlist songs for a room
+const fetchAndCachePlaylistSongs = async (room, hostUserId) => {
+  if (!room.spotifyPlaylistId) {
+    throw new Error("Room does not have a custom playlist");
+  }
+
+  try {
+    const songs = await spotifyAuth.fetchPlaylistSongsForGame(hostUserId, room.spotifyPlaylistId);
+    if (songs.length < 5) {
+      throw new Error("Playlist must have at least 5 songs with preview URLs");
+    }
+    
+    room.customPlaylistSongs = songs;
+    await room.save();
+    return songs;
+  } catch (err) {
+    console.error("Failed to fetch playlist songs:", err);
+    throw err;
+  }
+};
 
 
 
@@ -38,57 +70,125 @@ startGame = (req, res) => {
       return;
     }
     lock.acquire("room"+req.body.name, function(done) {
-    Room.findById(user.roomId).then((room) => {
-      Song.aggregate([{$match:
-        {categoryId: room.category._id+"" } }, { $sample: { size: 1 } }], async (err, songs) => {
-        if (room.status === "InProgress") {
-          res.send({})
-          done({}, {});
-          return;
-        }
-        room.status = "InProgress";
-        let players = room.users.map((oneuser) => {
-          return { userId: oneuser };
-        })
-        const game = new Game({
-          roomId: room._id,
-          song: songs[0],
-          songHistory: [],
-          players: players,
-          originalLength: players.length,
+    Room.findById(user.roomId).then(async (room) => {
+      // Check if this is a custom playlist game
+      if (room.spotifyPlaylistId) {
+        // Fetch songs from Spotify playlist
+        try {
+          if (room.status === "InProgress") {
+            res.send({})
+            done({}, {});
+            return;
+          }
 
-          statusChangeTime: fromNow(3000),
-        });
-        let savedGame = await game.save();
+          // Fetch and cache playlist songs
+          let customSongs = room.customPlaylistSongs;
+          if (!customSongs || customSongs.length === 0) {
+            customSongs = await fetchAndCachePlaylistSongs(room, req.user._id);
+          }
+
+          if (customSongs.length < 5) {
+            res.send({ error: true, message: "Not enough playable songs in playlist" });
+            done({}, {});
+            return;
+          }
+
+          room.status = "InProgress";
+          let players = room.users.map((oneuser) => {
+            return { userId: oneuser };
+          });
+
+          // Get first random song
+          const firstSong = getRandomCustomSong(customSongs);
+
+          const game = new Game({
+            roomId: room._id,
+            song: firstSong,
+            songHistory: [],
+            players: players,
+            originalLength: players.length,
+            statusChangeTime: fromNow(3000),
+          });
+          let savedGame = await game.save();
 
           room.gameId = savedGame._id;
           room.created = new Date();
           room.host = {
             userId: req.user._id,
             name: user.name
-          }
-          room.save().then((savedRoom) => {
-            
-              if(!savedRoom.private) {
-                socket
-              .getIo()
-              .in("Room: Lobby")
-              .emit("room", savedRoom);
-              }
-            
-            let hideAnswer = savedGame 
-            hideAnswer.song = {songUrl: hideAnswer.song.songUrl}
-            socket
-              .getIo()
-              .in("Room: " + room._id)
-              .emit("game", hideAnswer);
-            setTimeout(() => {
-              startRound(room._id, 1, savedGame._id+"");
-            }, 3000);
+          };
+          
+          let savedRoom = await room.save();
+
+          let hideAnswer = savedGame;
+          hideAnswer.song = { songUrl: hideAnswer.song.songUrl };
+          socket
+            .getIo()
+            .in("Room: " + room._id)
+            .emit("game", hideAnswer);
+          setTimeout(() => {
+            startRound(room._id, 1, savedGame._id + "");
+          }, 3000);
+          res.send({});
+          done({}, {});
+        } catch (err) {
+          console.error("Error starting custom playlist game:", err);
+          res.send({ error: true, message: err.message || "Failed to load playlist" });
+          done({}, {});
+        }
+      } else {
+        // Standard category-based game
+        Song.aggregate([{$match:
+          {categoryId: room.category._id+"" } }, { $sample: { size: 1 } }], async (err, songs) => {
+          if (room.status === "InProgress") {
             res.send({})
             done({}, {});
+            return;
+          }
+          room.status = "InProgress";
+          let players = room.users.map((oneuser) => {
+            return { userId: oneuser };
+          })
+          const game = new Game({
+            roomId: room._id,
+            song: songs[0],
+            songHistory: [],
+            players: players,
+            originalLength: players.length,
+
+            statusChangeTime: fromNow(3000),
           });
-        });
+          let savedGame = await game.save();
+
+            room.gameId = savedGame._id;
+            room.created = new Date();
+            room.host = {
+              userId: req.user._id,
+              name: user.name
+            }
+            room.save().then((savedRoom) => {
+              
+                if(!savedRoom.private) {
+                  socket
+                .getIo()
+                .in("Room: Lobby")
+                .emit("room", savedRoom);
+                }
+              
+              let hideAnswer = savedGame 
+              hideAnswer.song = {songUrl: hideAnswer.song.songUrl}
+              socket
+                .getIo()
+                .in("Room: " + room._id)
+                .emit("game", hideAnswer);
+              setTimeout(() => {
+                startRound(room._id, 1, savedGame._id+"");
+              }, 3000);
+              res.send({})
+              done({}, {});
+            });
+          });
+      }
       });
     }, function(err, ret){});
   });
@@ -178,52 +278,97 @@ endRound = (roomId, roundNum, gameId) => {
         done({}, {});
         return;
       }
+
+    // Check if this is a custom playlist game
+    if (room.spotifyPlaylistId && room.customPlaylistSongs && room.customPlaylistSongs.length > 0) {
+      // Custom playlist game - get next song from cached songs
+      game = await Game.findById(room.gameId);
+      let songHistory = game.songHistory;
+      songHistory.push(game.song);
+      game.songHistory = songHistory;
       
-    Song.aggregate([{$match:
-        {categoryId: room.category._id+"" } }, { $sample: { size: 1 } }], async (err, songs) => {
+      if (roundNum === NUM_ROUNDS) {
+        game.status = "RoundFinished";
+        room.status = "Finished";
 
-       game = await Game.findById(room.gameId)
-       let songHistory = game.songHistory;
-        songHistory.push(game.song);
-        game.songHistory = songHistory;
-        if (roundNum === NUM_ROUNDS) {
-          game.status = "RoundFinished";
-          room.status = "Finished"
-
-          room.save().then((savedRoom)=>{
-            if(!savedRoom.private) {
-            socket
-            .getIo()
-            .in("Room: Lobby")
-            .emit("room", savedRoom);
-            }
-          }) 
-          updateLeaderboard(game.players, ""+room.category._id)
-        }
-        else {
-          game.status = "RoundStarting";
-          game.song = songs[0];
-          game.statusChangeTime = fromNow(3000);
-         
-          game.roundNumber = game.roundNumber + 1;
-          
-        }
-        let savedGame = undefined;
-        savedGame = await game.save();
+        // Clear the cached songs when game ends
+        room.customPlaylistSongs = [];
+        await room.save();
         
-          let hideAnswer = savedGame 
-          hideAnswer.song = {songUrl: hideAnswer.song.songUrl}
-          socket
-            .getIo()
-            .in("Room: " + room._id)
-            .emit("game", hideAnswer);
-          if (roundNum !== NUM_ROUNDS) {
-            setTimeout(() => {
-              startRound(room._id, roundNum + 1, gameId, songs[0]);
-            }, 3000);
+        // Custom playlist games are unrated, so don't update leaderboard
+      } else {
+        game.status = "RoundStarting";
+        // Get next song, excluding already played songs
+        const playedUrls = songHistory.map(s => s.songUrl);
+        const nextSong = getRandomCustomSong(room.customPlaylistSongs, playedUrls);
+        game.song = nextSong;
+        game.statusChangeTime = fromNow(3000);
+        game.roundNumber = game.roundNumber + 1;
+      }
+      
+      let savedGame = await game.save();
+      
+      let hideAnswer = savedGame;
+      hideAnswer.song = { songUrl: hideAnswer.song.songUrl };
+      socket
+        .getIo()
+        .in("Room: " + room._id)
+        .emit("game", hideAnswer);
+      
+      if (roundNum !== NUM_ROUNDS) {
+        setTimeout(() => {
+          startRound(room._id, roundNum + 1, gameId);
+        }, 3000);
+      }
+      done({}, {});
+    } else {
+      // Standard category-based game
+      Song.aggregate([{$match:
+          {categoryId: room.category._id+"" } }, { $sample: { size: 1 } }], async (err, songs) => {
+
+         game = await Game.findById(room.gameId)
+         let songHistory = game.songHistory;
+          songHistory.push(game.song);
+          game.songHistory = songHistory;
+          if (roundNum === NUM_ROUNDS) {
+            game.status = "RoundFinished";
+            room.status = "Finished"
+
+            room.save().then((savedRoom)=>{
+              if(!savedRoom.private) {
+              socket
+              .getIo()
+              .in("Room: Lobby")
+              .emit("room", savedRoom);
+              }
+            }) 
+            updateLeaderboard(game.players, ""+room.category._id)
           }
-          done({}, {});
-        });
+          else {
+            game.status = "RoundStarting";
+            game.song = songs[0];
+            game.statusChangeTime = fromNow(3000);
+           
+            game.roundNumber = game.roundNumber + 1;
+            
+          }
+          let savedGame = undefined;
+          savedGame = await game.save();
+          
+            let hideAnswer = savedGame 
+            hideAnswer.song = {songUrl: hideAnswer.song.songUrl}
+            socket
+              .getIo()
+              .in("Room: " + room._id)
+              .emit("game", hideAnswer);
+            if (roundNum !== NUM_ROUNDS) {
+              setTimeout(() => {
+                startRound(room._id, roundNum + 1, gameId, songs[0]);
+              }, 3000);
+            }
+            done({}, {});
+          });
+    }
       });
     }, function(err, ret) {});
  
