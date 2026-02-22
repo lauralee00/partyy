@@ -32,6 +32,26 @@ const RoomSchema = new mongoose.Schema({
     type: [String],
     default: []
   },
+  // Custom Spotify playlist support
+  spotifyPlaylistId: {
+    type: String,
+    default: null
+  },
+  spotifyPlaylistName: {
+    type: String,
+    default: null
+  },
+  // Temporary song cache for custom playlist games (not persisted to Song collection)
+  customPlaylistSongs: {
+    type: [{
+      title: String,
+      artist: [String],
+      artUrl: String,
+      songUrl: String,
+      spotifyUrl: String
+    }],
+    default: []
+  }
   /*
   allUserIdsThatHaveBeenInRoom: {
     type: [String],

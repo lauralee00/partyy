@@ -33,6 +33,23 @@ const UserSchema = new mongoose.Schema({
   difficulty: {
     type: Number,
     default: 0
+  },
+  // Spotify OAuth fields for personal playlists
+  spotifyId: {
+    type: String,
+    default: null,
+  },
+  spotifyAccessToken: {
+    type: String,
+    default: null,
+  },
+  spotifyRefreshToken: {
+    type: String,
+    default: null,
+  },
+  spotifyTokenExpiry: {
+    type: Date,
+    default: null,
   }
 });
 
