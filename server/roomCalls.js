@@ -14,11 +14,13 @@ const lock = require("./lock").lock;
 createRoom
 Input (req.body): {private: Boolean, 
 categoryId: String, 
-rated: Boolean}
-Precondition: categoryId is a valid category id
-Socket: to("Room: Lobby").emit(“createdRoom”, Room) 
+rated: Boolean,
+spotifyPlaylistId: String (optional),
+spotifyPlaylistName: String (optional)}
+Precondition: categoryId is a valid category id OR spotifyPlaylistId is provided
+Socket: to("Room: Lobby").emit("createdRoom", Room) 
 Returns: {name: String}  (the room name, some randomly generated string) 
-Description: Creates a room
+Description: Creates a room. Can use either a category or a custom Spotify playlist.
 */
 createRoom = (req, res) => {
   let mySocket = socket.getSocketFromUserID(req.user._id);
@@ -27,34 +29,59 @@ createRoom = (req, res) => {
     return;
   }
   let name = Math.random().toString(36).substring(2, 15);
+  
   User.findById(req.user._id).then((me) => {
-    Category.findById(req.body.categoryId).then((category) => {
-      if (!category) res.send({});
+    // Check if using custom Spotify playlist
+    if (req.body.spotifyPlaylistId) {
+      // Create room with custom Spotify playlist (always private, always unrated)
       const newRoom = new Room({
         name: name,
-        category: category,
-        rated: req.body.rated,
-        private: req.body.private,
+        category: {
+          _id: "custom_" + req.body.spotifyPlaylistId,
+          name: req.body.spotifyPlaylistName || "Custom Playlist",
+        },
+        rated: false, // Custom playlist games are unrated
+        private: true, // Custom playlist games are always private
         host: {
           userId: req.user._id,
           name: me.name,
         },
+        spotifyPlaylistId: req.body.spotifyPlaylistId,
+        spotifyPlaylistName: req.body.spotifyPlaylistName,
       });
       newRoom.save().then((room) => {
-         if(!room.private)
-            mySocket.to("Room: Lobby").emit("room", room);
-
         res.send({ name: name });
       });
-    });
+    } else {
+      // Standard category-based room
+      Category.findById(req.body.categoryId).then((category) => {
+        if (!category) res.send({});
+        const newRoom = new Room({
+          name: name,
+          category: category,
+          rated: req.body.rated,
+          private: req.body.private,
+          host: {
+            userId: req.user._id,
+            name: me.name,
+          },
+        });
+        newRoom.save().then((room) => {
+           if(!room.private)
+              mySocket.to("Room: Lobby").emit("room", room);
+
+          res.send({ name: name });
+        });
+      });
+    }
   });
 };
 
 /*
 joinRoom
 Input (req.body): {name: String}
-Precondition: name is name of a valid room, 
-Socket: to("Room: roomId").emit(“joinedRoom”, {userId: String, userName: String, leaderboardData: []})
+Precondition: name is name of a valid room,
+Socket: to("Room: roomId").emit("joinedRoom", {userId: String, userName: String, leaderboardData: []})
 Returns:  {room: Room, game: Game, users: [{userId: String, userName: String, leaderboardData: []}]}
 Description: Checks to see if room name exists and is not closed. If it is closed, shows error message. Else, returns information associated with the room and game
 */
@@ -86,7 +113,7 @@ joinRoom = (req, res) => {
                     socket.getSocketFromUserID(req.user._id).join("Room: " + room._id);
                   }
 
-                  
+
                   (socket
                     .getSocketFromUserID(req.user._id) || socket.getIo())
                     .to("Room: " + room._id)
@@ -95,10 +122,10 @@ joinRoom = (req, res) => {
                       userName: me.name,
                       leaderboardData: me.leaderboardData,
                     });
-                  
+
                   let roomUsers = room.users.filter((user)=>{return socket.getSocketFromUserID(user)});
                   if(!roomUsers.includes(req.user._id))
-                      roomUsers.push(req.user._id); 
+                      roomUsers.push(req.user._id);
                   room.users = roomUsers;
                   room.save().then((savedRoom) => {
                     if (savedRoom.users.length !== users.length) {
@@ -152,8 +179,8 @@ joinRoom = (req, res) => {
 leaveRoom
 Input (req.body): {roomId: String}
 Precondition: roomId is a valid room
-Socket: to("Room: roomId").emit(“leftRoom”, {userId: String})
-Returns: {}  
+Socket: to("Room: roomId").emit("leftRoom", {userId: String})
+Returns: {}
 Description: Does socket.leave("Room: roomId")
 */
 leaveRoom = (req, res) => {
@@ -176,16 +203,16 @@ leaveRoom = (req, res) => {
       userId: req.user._id,
       roomId: req.body.roomId
     });*/
-  
+
   Room.findById(req.body.roomId).then((room) => {
     let users = room.users.filter((id) => {
       return id !== req.user._id+"";
     });
     room.users = users;
-    
-    
+
+
     room.save().then((savedRoom) => {
-      
+
       if(!savedRoom.private) {
       (mySocket || socket.getIo())
     .to("Room: " + "Lobby")
@@ -199,7 +226,7 @@ leaveRoom = (req, res) => {
           done({}, {});
         })
       })
-      
+
     });
   });
 }, function(err, ret) {});
@@ -209,5 +236,5 @@ module.exports = {
   createRoom,
   joinRoom,
   leaveRoom,
-  
+
 };
