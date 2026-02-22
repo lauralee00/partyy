@@ -13,8 +13,11 @@ import List from "@material-ui/core/List";
 import ListItem from "@material-ui/core/ListItem";
 import ListItemText from "@material-ui/core/ListItemText";
 import Typography from "@material-ui/core/Typography";
+import Tabs from "@material-ui/core/Tabs";
+import Tab from "@material-ui/core/Tab";
 import RoomTable from "../modules/RoomTable.js";
 import Chat from "../modules/Chat.js";
+import PlaylistPicker from "../modules/PlaylistPicker.js";
 import { get, post } from "../../utilities.js";
 class Lobby extends Component {
   constructor(props) {
@@ -24,8 +27,13 @@ class Lobby extends Component {
       buttonColor: "#3fb045",
       rooms: [],
       messages: [],
+      activeTab: 0, // 0 = Categories, 1 = My Playlists
     };
   }
+
+  handleTabChange = (event, newValue) => {
+    this.setState({ activeTab: newValue });
+  };
 
   componentDidMount() {
     // remember -- api calls go here!
@@ -70,88 +78,118 @@ class Lobby extends Component {
           height="100%"
           style={{ padding: "30px 40px 40px 40px" }}
         >
-          <Box
-            height="50px"
-            style={{
-              display: "flex",
-              justifyContent: "center",
-              alignItems: "center",
-              paddingBottom: "10px",
-            }}
-          >
-            {this.props.category ? (
-              <React.Fragment>
-                <Grid container direction="row" spacing={1}>
-                  <Grid item xs={6}>
-                    <Button
-                      fullWidth
-                      style={{ backgroundColor: this.state.buttonColor, color: "#FFFFFF" }}
-                      onMouseOver={() => {
-                        this.setState({ buttonColor: "#43a047" });
-                      }}
-                      onMouseOut={() => {
-                        this.setState({ buttonColor: "#3fb045" });
-                      }}
-                      variant="contained"
-                      onClick={() => {
-                        this.setState({disable: true}, ()=>{
-                        post("api/createRoom", { categoryId: this.props.category._id }).then(
-                          (data) => {
-                            this.props.redirect("/" + data.name);
-                            this.setState({disable: false}) 
-                          }
-                        )
-                        })
-                      }}
-                      disabled={this.state.disable}
-                    >
-                      <Typography noWrap variant="button" style={{fontWeight: 900}}>
-                        {" "}
-                        New {this.props.category.name} Game{" "}
-                      </Typography>
-                    </Button>
-                  </Grid>
-                  <Grid item xs={6}>
-                    <Button
-                      fullWidth
-                      color="secondary"
-                      variant="outlined"
-                      onClick={() => {
-                        this.setState({disable: true}, ()=>{
-                        post("api/createRoom", {
-                          categoryId: this.props.category._id,
-                          private: true,
-                        }).then((data) => {
-                          
-                          this.props.redirect("/" + data.name);
-                          this.setState({disable: false}) 
-                        });
-                      })
-                      }}
-                      disabled={this.state.disable}
-                    >
-                      <Typography noWrap variant="button">
-                        {" "}
-                        Private Game{" "}
-                      </Typography>
-                    </Button>
-                  </Grid>
-                </Grid>
-              </React.Fragment>
-            ) : (
-              <></>
-            )}
+          {/* Tabs for switching between Categories and Playlists */}
+          <Box mb={2}>
+            <Tabs
+              value={this.state.activeTab}
+              onChange={this.handleTabChange}
+              indicatorColor="primary"
+              textColor="primary"
+              variant="fullWidth"
+            >
+              <Tab label="Categories" />
+              <Tab label="My Playlists" />
+            </Tabs>
           </Box>
-          <Box
-            height={this.props.login ? "calc(100% - 70px)" : "calc(100% - 50px)"}
-            style={{ marginBottom: this.props.login ? "10px" : undefined }}
-          >
-            <RoomTable
-              rooms={this.state.rooms}
-              redirect={this.props.redirect}
-              categoryId={this.props.category ? this.props.category._id : undefined}
-            />
-          </Box>
+
+          {/* Category Games Tab */}
+          {this.state.activeTab === 0 && (
+            <>
+              <Box
+                height="50px"
+                style={{
+                  display: "flex",
+                  justifyContent: "center",
+                  alignItems: "center",
+                  paddingBottom: "10px",
+                }}
+              >
+                {this.props.category ? (
+                  <React.Fragment>
+                    <Grid container direction="row" spacing={1}>
+                      <Grid item xs={6}>
+                        <Button
+                          fullWidth
+                          style={{ backgroundColor: this.state.buttonColor, color: "#FFFFFF" }}
+                          onMouseOver={() => {
+                            this.setState({ buttonColor: "#43a047" });
+                          }}
+                          onMouseOut={() => {
+                            this.setState({ buttonColor: "#3fb045" });
+                          }}
+                          variant="contained"
+                          onClick={() => {
+                            this.setState({disable: true}, ()=>{
+                            post("api/createRoom", { categoryId: this.props.category._id }).then(
+                              (data) => {
+                                this.props.redirect("/" + data.name);
+                                this.setState({disable: false}) 
+                              }
+                            )
+                            })
+                          }}
+                          disabled={this.state.disable}
+                        >
+                          <Typography noWrap variant="button" style={{fontWeight: 900}}>
+                            {" "}
+                            New {this.props.category.name} Game{" "}
+                          </Typography>
+                        </Button>
+                      </Grid>
+                      <Grid item xs={6}>
+                        <Button
+                          fullWidth
+                          color="secondary"
+                          variant="outlined"
+                          onClick={() => {
+                            this.setState({disable: true}, ()=>{
+                            post("api/createRoom", {
+                              categoryId: this.props.category._id,
+                              private: true,
+                            }).then((data) => {
+                              
+                              this.props.redirect("/" + data.name);
+                              this.setState({disable: false}) 
+                            });
+                          })
+                          }}
+                          disabled={this.state.disable}
+                        >
+                          <Typography noWrap variant="button">
+                            {" "}
+                            Private Game{" "}
+                          </Typography>
+                        </Button>
+                      </Grid>
+                    </Grid>
+                  </React.Fragment>
+                ) : (
+                  <></>
+                )}
+              </Box>
+              <Box
+                height={this.props.login ? "calc(100% - 120px)" : "calc(100% - 100px)"}
+                style={{ marginBottom: this.props.login ? "10px" : undefined }}
+              >
+                <RoomTable
+                  rooms={this.state.rooms}
+                  redirect={this.props.redirect}
+                  categoryId={this.props.category ? this.props.category._id : undefined}
+                />
+              </Box>
+            </>
+          )}
+
+          {/* My Playlists Tab */}
+          {this.state.activeTab === 1 && (
+            <Box
+              height={this.props.login ? "calc(100% - 70px)" : "calc(100% - 50px)"}
+              style={{ marginBottom: this.props.login ? "10px" : undefined, overflow: "auto" }}
+            >
+              <PlaylistPicker redirect={this.props.redirect} />
+            </Box>
+          )}
+
           {this.props.login || <></>}
         </Box>
         {rightbar ? (
