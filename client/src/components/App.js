@@ -74,6 +74,25 @@ class App extends Component {
     this.setState({ rainbow: !this.state.rainbow });
   };
   componentDidMount() {
+    // Check for Spotify OAuth callback parameters
+    const urlParams = new URLSearchParams(window.location.search);
+    const spotifyConnected = urlParams.get("spotifyConnected");
+    const spotifyError = urlParams.get("spotifyError");
+
+    if (spotifyConnected === "true") {
+      // Clean up URL and show success notification
+      window.history.replaceState({}, document.title, window.location.pathname);
+      this.setState({ spotifyJustConnected: true });
+    } else if (spotifyError) {
+      // Clean up URL and show error
+      window.history.replaceState({}, document.title, window.location.pathname);
+      console.error("Spotify connection error:", spotifyError);
+      Modal.error({
+        title: "Spotify Connection Failed",
+        content: `Failed to connect Spotify: ${spotifyError}`,
+      });
+    }
+
     socket.on("connect", () => {
       this.setState({ loaded: false }, () => {
         this.updateWindowDimensions();
