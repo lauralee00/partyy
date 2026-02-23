@@ -111,8 +111,8 @@ Returns:
 Description:
 */
 var spotifyApi = new SpotifyWebApi({
-  clientId: process.env.SPOTIFY_ID,
-  clientSecret: process.env.SPOTIFY_SECRET,
+  clientId: process.env.SPOTIFY_CLIENT_ID || process.env.SPOTIFY_ID,
+  clientSecret: process.env.SPOTIFY_CLIENT_SECRET || process.env.SPOTIFY_SECRET,
   redirectUri: process.env.URL + "/api/addCategory",
 });
 
