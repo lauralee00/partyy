@@ -396,10 +396,8 @@ const validatePublicPlaylist = async (playlistId) => {
   try {
     const spotifyApi = await getClientCredentialsApi();
     
-    // Get playlist metadata
-    const playlist = await spotifyApi.getPlaylist(playlistId, {
-      fields: "id,name,description,images,owner,tracks.total,public",
-    });
+    // Get playlist metadata (simpler call without field filtering)
+    const playlist = await spotifyApi.getPlaylist(playlistId);
 
     if (!playlist.body) {
       return { valid: false, error: "Playlist not found" };
@@ -408,7 +406,6 @@ const validatePublicPlaylist = async (playlistId) => {
     // Get first batch of tracks to count playable songs
     const tracks = await spotifyApi.getPlaylistTracks(playlistId, {
       limit: 100,
-      fields: "items(track(preview_url)),total",
       market: "US",
     });
 
@@ -418,28 +415,36 @@ const validatePublicPlaylist = async (playlistId) => {
 
     // Estimate total playable (rough estimate based on first 100)
     const totalTracks = tracks.body.total;
-    const estimatedPlayable = Math.floor((playableCount / Math.min(100, totalTracks)) * totalTracks);
+    const estimatedPlayable = totalTracks > 0 
+      ? Math.floor((playableCount / Math.min(100, totalTracks)) * totalTracks)
+      : 0;
+
+    const images = playlist.body.images || [];
+    const owner = playlist.body.owner || {};
 
     return {
       valid: true,
       id: playlist.body.id,
       name: playlist.body.name,
-      description: playlist.body.description,
-      imageUrl: playlist.body.images?.[0]?.url || null,
-      owner: playlist.body.owner?.display_name || "Unknown",
+      description: playlist.body.description || "",
+      imageUrl: images.length > 0 ? images[0].url : null,
+      owner: owner.display_name || "Unknown",
       totalTracks,
       playableSongs: playableCount,
       estimatedTotalPlayable: estimatedPlayable,
     };
   } catch (err) {
-    console.error("Validate public playlist error:", err);
+    console.error("Validate public playlist error:", err.message || err);
+    if (err.body) {
+      console.error("Spotify error body:", JSON.stringify(err.body));
+    }
     if (err.statusCode === 404) {
       return { valid: false, error: "Playlist not found" };
     }
     if (err.statusCode === 403 || err.statusCode === 401) {
       return { valid: false, error: "Playlist is private or not accessible" };
     }
-    return { valid: false, error: "Failed to load playlist" };
+    return { valid: false, error: "Failed to load playlist: " + (err.message || "Unknown error") };
   }
 };
 
