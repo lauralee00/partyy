@@ -360,6 +360,126 @@ const fetchPlaylistSongsForGame = async (userId, playlistId) => {
   return allSongs;
 };
 
+// ============================================
+// PUBLIC PLAYLIST SUPPORT (Client Credentials)
+// ============================================
+
+// Get client credentials token (no user login required)
+let clientCredentialsToken = null;
+let clientCredentialsExpiry = null;
+
+const getClientCredentialsApi = async () => {
+  const now = Date.now();
+  
+  // Reuse token if still valid (with 5 min buffer)
+  if (clientCredentialsToken && clientCredentialsExpiry && (clientCredentialsExpiry - now > 5 * 60 * 1000)) {
+    const spotifyApi = createSpotifyApi();
+    spotifyApi.setAccessToken(clientCredentialsToken);
+    return spotifyApi;
+  }
+
+  const spotifyApi = createSpotifyApi();
+  const data = await spotifyApi.clientCredentialsGrant();
+  
+  clientCredentialsToken = data.body.access_token;
+  clientCredentialsExpiry = now + (data.body.expires_in * 1000);
+  
+  spotifyApi.setAccessToken(clientCredentialsToken);
+  return spotifyApi;
+};
+
+/**
+ * Validate a public playlist and return track count info
+ * Used for the "paste any URL" feature
+ */
+const validatePublicPlaylist = async (playlistId) => {
+  try {
+    const spotifyApi = await getClientCredentialsApi();
+    
+    // Get playlist metadata
+    const playlist = await spotifyApi.getPlaylist(playlistId, {
+      fields: "id,name,description,images,owner,tracks.total,public",
+    });
+
+    if (!playlist.body) {
+      return { valid: false, error: "Playlist not found" };
+    }
+
+    // Get first batch of tracks to count playable songs
+    const tracks = await spotifyApi.getPlaylistTracks(playlistId, {
+      limit: 100,
+      fields: "items(track(preview_url)),total",
+      market: "US",
+    });
+
+    const playableCount = tracks.body.items.filter(
+      (item) => item.track && item.track.preview_url
+    ).length;
+
+    // Estimate total playable (rough estimate based on first 100)
+    const totalTracks = tracks.body.total;
+    const estimatedPlayable = Math.floor((playableCount / Math.min(100, totalTracks)) * totalTracks);
+
+    return {
+      valid: true,
+      id: playlist.body.id,
+      name: playlist.body.name,
+      description: playlist.body.description,
+      imageUrl: playlist.body.images?.[0]?.url || null,
+      owner: playlist.body.owner?.display_name || "Unknown",
+      totalTracks,
+      playableSongs: playableCount,
+      estimatedTotalPlayable: estimatedPlayable,
+    };
+  } catch (err) {
+    console.error("Validate public playlist error:", err);
+    if (err.statusCode === 404) {
+      return { valid: false, error: "Playlist not found" };
+    }
+    if (err.statusCode === 403 || err.statusCode === 401) {
+      return { valid: false, error: "Playlist is private or not accessible" };
+    }
+    return { valid: false, error: "Failed to load playlist" };
+  }
+};
+
+/**
+ * Fetch all playable songs from a public playlist (no user auth required)
+ */
+const fetchPublicPlaylistSongs = async (playlistId) => {
+  const spotifyApi = await getClientCredentialsApi();
+
+  const allSongs = [];
+  let offset = 0;
+  const limit = 100;
+  let hasMore = true;
+
+  while (hasMore) {
+    const data = await spotifyApi.getPlaylistTracks(playlistId, {
+      offset,
+      limit,
+      fields: "items(track(name,preview_url,artists,album(images),external_urls)),total",
+      market: "US",
+    });
+
+    const tracks = data.body.items
+      .filter((item) => item.track && item.track.preview_url)
+      .map((item) => ({
+        title: item.track.name,
+        artist: item.track.artists.map((a) => a.name),
+        songUrl: item.track.preview_url,
+        artUrl: item.track.album.images[0] ? item.track.album.images[0].url : null,
+        spotifyUrl: item.track.external_urls ? item.track.external_urls.spotify : null,
+      }));
+
+    allSongs.push(...tracks);
+    offset += limit;
+    hasMore = offset < data.body.total;
+  }
+
+  return allSongs;
+};
+
 module.exports = {
   getAuthUrl,
   handleCallback,
@@ -370,4 +490,7 @@ module.exports = {
   fetchPlaylistSongsForGame,
   getSpotifyApiForUser,
   refreshUserToken,
+  // Public playlist functions (no user auth required)
+  validatePublicPlaylist,
+  fetchPublicPlaylistSongs,
 };

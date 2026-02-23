@@ -89,6 +89,17 @@ router.get("/spotify/status", auth.ensureLoggedIn, spotifyAuth.getStatus);
 router.get("/spotify/playlists", auth.ensureLoggedIn, spotifyAuth.getPlaylists);
 router.get("/spotify/playlist/:playlistId/tracks", auth.ensureLoggedIn, spotifyAuth.getPlaylistTracks);
 
+// Public playlist routes (no Spotify login required - uses client credentials)
+router.get("/spotify/public/validate/:playlistId", async (req, res) => {
+  try {
+    const result = await spotifyAuth.validatePublicPlaylist(req.params.playlistId);
+    res.send(result);
+  } catch (err) {
+    console.error("Public playlist validation error:", err);
+    res.status(500).send({ valid: false, error: "Server error" });
+  }
+});
+
 // anything else falls to this "not found" case
 router.all("*", (req, res) => {
   console.log(`API route not found: ${req.method} ${req.url}`);

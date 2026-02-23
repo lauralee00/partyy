@@ -39,7 +39,24 @@ const fetchAndCachePlaylistSongs = async (room, hostUserId) => {
   }
 
   try {
-    const songs = await spotifyAuth.fetchPlaylistSongsForGame(hostUserId, room.spotifyPlaylistId);
+    let songs = null;
+    
+    // Try user OAuth first if available
+    if (hostUserId) {
+      try {
+        songs = await spotifyAuth.fetchPlaylistSongsForGame(hostUserId, room.spotifyPlaylistId);
+      } catch (userAuthErr) {
+        console.log("User auth failed, falling back to public playlist fetch:", userAuthErr.message);
+        songs = null;
+      }
+    }
+    
+    // Fall back to client credentials for public playlists
+    if (!songs || songs.length === 0) {
+      console.log("Using client credentials to fetch public playlist");
+      songs = await spotifyAuth.fetchPublicPlaylistSongs(room.spotifyPlaylistId);
+    }
+
     if (songs.length < 5) {
       throw new Error("Playlist must have at least 5 songs with preview URLs");
     }
