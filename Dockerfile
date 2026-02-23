@@ -9,8 +9,8 @@ RUN npm ci
 # Copy source
 COPY . .
 
-# Build frontend
-RUN npm run build
+# Build frontend (fix OpenSSL issue with older webpack)
+RUN NODE_OPTIONS=--openssl-legacy-provider npm run build
 
 # Prune dev dependencies
 RUN npm prune --production
